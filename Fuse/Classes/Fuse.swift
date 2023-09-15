@@ -388,6 +388,33 @@ extension Fuse {
         }
     }
     
+    public func search(_ pattern: Pattern?, in item: Fuseable) -> (score: Double, results: [(key: String, score: Double, ranges: [CountableClosedRange<Int>])])? {
+        var scores = [Double]()
+        var totalScore = 0.0
+        
+        var propertyResults = [(key: String, score: Double, ranges: [CountableClosedRange<Int>])]()
+
+        item.properties.forEach { property in
+            let value = property.name
+            
+            if let result = self.search(pattern, in: value) {
+                let weight = property.weight == 1 ? 1 : 1 - property.weight
+                let score = (result.score == 0 && weight == 1 ? 0.001 : result.score) * weight
+                totalScore += score
+                
+                scores.append(score)
+                
+                propertyResults.append((key: property.name, score: score, ranges: result.ranges))
+            }
+        }
+        
+        if scores.count == 0 {
+            return nil
+        }
+        
+        return (score: totalScore / Double(scores.count), results: propertyResults)
+    }
+    
     /// Searches for a text pattern in an array of `Fuseable` objects.
     ///
     /// Each `FuseSearchable` object contains a `properties` accessor which returns `FuseProperty` array. Each `FuseProperty` is a tuple containing a `key` (the value of the property which should be included in the search), and a `weight` (how much "weight" to assign to the score)
@@ -428,35 +455,11 @@ extension Fuse {
         var collectionResult = [FusableSearchResult]()
         
         for (index, item) in aList.enumerated() {
-            var scores = [Double]()
-            var totalScore = 0.0
-            
-            var propertyResults = [(key: String, score: Double, ranges: [CountableClosedRange<Int>])]()
-
-            item.properties.forEach { property in
-                let value = property.name
-                
-                if let result = self.search(pattern, in: value) {
-                    let weight = property.weight == 1 ? 1 : 1 - property.weight
-                    let score = (result.score == 0 && weight == 1 ? 0.001 : result.score) * weight
-                    totalScore += score
-                    
-                    scores.append(score)
-                    
-                    propertyResults.append((key: property.name, score: score, ranges: result.ranges))
-                }
-            }
-            
-            if scores.count == 0 {
+            guard let result = search(pattern, in: item) else {
                 continue
             }
             
-            collectionResult.append((
-                index: index,
-                score: totalScore / Double(scores.count),
-                results: propertyResults
-            ))
-            
+            collectionResult.append((index, result.score, result.results))
         }
         
         return collectionResult.sorted { $0.score < $1.score }
